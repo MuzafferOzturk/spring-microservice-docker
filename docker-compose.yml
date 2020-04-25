@@ -1,0 +1,130 @@
+version: '3.7'
+services:
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    restart: always
+    networks:
+      - test-network
+  eureka-name-server:
+    image: test/name-server
+    container_name: eureka-name-server
+    build:
+      context: name-server
+      dockerfile: Dockerfile
+    networks:
+      - test-network
+    environment:
+      RABBIT_ADDRESS: rabbitmq:5672
+      RABBIT_HOST: rabbitmq
+      RABBIT_URI: amqp://guest:guest@rabbitmq:5672
+      CONFIG_SERVER: http:config-server:8888
+    ports:
+      - "8761:8761"
+  zipkin-server:
+    image: openzipkin/zipkin
+    container_name: zipkin-server
+    environment:
+      RABBIT_URI: amqp://guest:guest@rabbitmq:5672
+      STORAGE_TYPE: mem
+    ports:
+      - "9411:9411"
+    restart: always
+    depends_on:
+      - rabbitmq
+    networks:
+      - test-network
+  zuul-gateway-server:
+    image: test/gateway-server
+    container_name: zuul-gateway-server
+    build:
+      context: gateway-server
+      dockerfile: Dockerfile
+    environment:
+      RABBIT_ADDRESS: rabbitmq:5672
+      RABBIT_HOST: rabbitmq
+      RABBIT_URI: amqp://guest:guest@rabbitmq:5672
+      CONFIG_SERVER: http:config-server:8888
+      EUREKA_SERVER: http://eureka-name-server:8761/eureka/
+      ZIPKIN_BASE: http://zipkin-server:9411/
+    networks:
+      - test-network
+    depends_on:
+      - eureka-name-server
+      - rabbitmq
+      - zipkin-server
+    ports:
+      - "8765:8765"
+  config-server:
+    image: test/config-server
+    container_name: config-server
+    build:
+      context: config-server
+      dockerfile: Dockerfile
+    environment:
+      RABBIT_ADDRESS: rabbitmq:5672
+      RABBIT_HOST: rabbitmq
+      RABBIT_URI: amqp://guest:guest@rabbitmq:5672
+      CONFIG_SERVER: http:config-server:8888
+      EUREKA_SERVER: http://eureka-name-server:8761/eureka/
+    depends_on:
+      - eureka-name-server
+      - rabbitmq
+      - zipkin-server
+    networks:
+      - test-network
+    ports:
+      - "8888:8888"
+  first-service:
+    image: test/first-service
+    container_name: first-service
+    build:
+      context: first-service
+      dockerfile: Dockerfile
+    environment:
+      RABBIT_ADDRESS: rabbitmq:5672
+      RABBIT_HOST: rabbitmq
+      RABBIT_URI: amqp://guest:guest@rabbitmq:5672
+      CONFIG_SERVER: http:config-server:8888
+      EUREKA_SERVER: http://eureka-name-server:8761/eureka/
+      ZIPKIN_BASE: http://zipkin-server:9411/
+    networks:
+      - test-network
+    depends_on:
+      - config-server
+      - eureka-name-server
+      - zuul-gateway-server
+      - rabbitmq
+      - zipkin-server
+    ports:
+      - "8081:8081"
+  second-service:
+    image: test/second-service
+    container_name: second-service
+    build:
+      context: second-service
+      dockerfile: Dockerfile
+    environment:
+      RABBIT_ADDRESS: rabbitmq:5672
+      RABBIT_HOST: rabbitmq
+      RABBIT_URI: amqp://guest:guest@rabbitmq:5672
+      CONFIG_SERVER: http:config-server:8888
+      EUREKA_SERVER: http://eureka-name-server:8761/eureka/
+      ZIPKIN_BASE: http://zipkin-server:9411/
+    depends_on:
+      - eureka-name-server
+      - zuul-gateway-server
+      - rabbitmq
+      - zipkin-server
+      - first-service
+    networks:
+      - test-network
+    ports:
+      - "8085:8085"
+
+
+networks:
+  test-network:
